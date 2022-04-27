@@ -1,0 +1,179 @@
+1. Compund Annual Growth Rate
+
+select advertiser, avg(cagr) as CAGR
+from
+(
+select advertiser, yr, revenue, revenue/prev_revenue - 1 as cagr
+from
+   (select *, lag(revenue, 1) over 
+              (partition by advertiser order by yr) as prev_revenue
+    from test ) t
+) t1
+group by advertiser
+
+2. Year on Year Growth
+
+-- =========================================
+-- simple year-over-year
+-- =========================================
+
+SELECT
+SUM(CASE WHEN year = 2008 THEN precipitation ELSE 0 END) AS cy_precipitation,
+SUM(CASE WHEN year = 2009 THEN precipitation ELSE 0 END) AS py_precipitation,
+SUM(CASE WHEN year = 2008 THEN precipitation ELSE 0.0 END) / SUM(CASE WHEN year = 2009 THEN precipitation ELSE 0.0 END) - 1.0  as change
+
+FROM station_data
+WHERE year BETWEEN 2008 AND 2009;
+
+-- =========================================
+--all years, approach 1, fastest
+-- =========================================
+
+SELECT s1.year,
+s1.total_precipitation as cy_precipitation,
+s2.total_precipitation as py_precipitation,
+(s1.total_precipitation / s2.total_precipitation) - 1.0 AS diff
+
+FROM
+(
+    SELECT year,
+    SUM(precipitation) AS total_precipitation
+    FROM station_data 
+    GROUP BY year
+) s1
+INNER JOIN
+(
+    SELECT year,
+    SUM(precipitation) AS total_precipitation
+    FROM station_data 
+    GROUP BY year
+) s2
+       
+ON (s1.year - 1) = s2.year;
+
+-- =========================================
+-- all years, approach 2,  slower
+-- =========================================
+
+SELECT year,
+cy_precipitation,
+py_precipitation,
+(cy_precipitation / py_precipitation) - 1.0 AS diff
+
+FROM ( 
+
+SELECT year,
+    SUM(precipitation) AS cy_precipitation,
+    (
+        SELECT SUM(precipitation) 
+        FROM station_data s2 
+        WHERE s2.year = s1.year - 1
+    ) py_precipitation
+    
+    FROM station_data s1
+    
+GROUP BY 1
+);
+
+3. Month on Month Growth 
+
+select date_trunc('month', timestamp) as date,
+       count(*) as count,
+       100 * (count(*) - lag(count(*), 1) over (order by timestamp)) / lag(count(*), 1) over (order by timestamp)) || '%' as growth
+from events
+where event_name = 'created chart'
+group by 1
+order by 1
+
+4. Top N or Rangking
+
+select country, 
+       city,
+       population, 
+       row_number() over (partition by country order by population desc) as country_rank 
+from cities;
+
+5. Percentage of Total 
+
+with total as
+    ( select sum(pageviews) as total
+    from pageviews )
+select browser,
+    pageviews / total.total as share
+from pageviews,
+    total;
+
+6. RFM 
+
+-- 1
+select customer_id, 
+       max(order_date) as last_order_date,
+       count(*) as count_order,
+       avg(amount) as avg_amount
+from customer_orders
+group by customer_id;
+
+-- 2
+select customer_id, 
+       ntile(4) over (order by last_order_date) as rfm_recency,
+       ntile(4) over (order by count_order) as rfm_frequency,
+       ntile(4) over (order by avg_amount) as rfm_monetary
+from 
+    (
+        select customer_id, 
+       max(order_date) as last_order_date,
+       count(*) as count_order,
+       avg(amount) as avg_amount
+from customer_orders
+group by customer_id
+    )
+
+-- 3
+select customer_id, rfm_recency*100 + rfm_frequency*10 + rfm_monetary as rfm_combined 
+from 
+    (
+       select customer_id, 
+       max(order_date) as last_order_date,
+       count(*) as count_order,
+       avg(amount) as avg_amount
+from customer_orders
+group by customer_id;
+
+-- 2
+select customer_id, 
+       ntile(4) over (order by last_order_date) as rfm_recency,
+       ntile(4) over (order by count_order) as rfm_frequency,
+       ntile(4) over (order by avg_amount) as rfm_monetary
+from 
+    (
+        select customer_id, 
+       max(order_date) as last_order_date,
+       count(*) as count_order,
+       avg(amount) as avg_amount
+from customer_orders
+group by customer_id
+    )         
+    )    
+
+
+7. Pareto Chart 
+
+with total_pageviews as
+(  
+    select count(pageviews) as cnt
+    from visits
+    where visits.dt > (now() - '2 weeks'::interval)
+)
+select title, 
+       pageviews, 
+       sum(pageview) over (order by pageviews desc) * 1.0 / total_pageviews.cnt as cumsum
+from (
+    select title, 
+        count(*) as pageviews
+    from visits
+    where visits.dt > (now() - '2 weeks'::interval)
+    -- just calculate for the last two weeks 
+    group by title 
+    order by 2 desc
+) tbl;
+
